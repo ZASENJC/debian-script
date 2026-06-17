@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "$0")/.." && pwd -P)"
 script="$repo_root/smb-mount.sh"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 
 fail() {
   printf 'smb-mount check failed: %s\n' "$*" >&2
@@ -10,6 +12,29 @@ fail() {
 }
 
 bash -n "$script"
+
+if command -v dash >/dev/null 2>&1; then
+  dash_out="$tmp/dash.out"
+  (printf 'q\n' | dash "$script" >"$dash_out" 2>&1) &
+  dash_pid="$!"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$dash_pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  if kill -0 "$dash_pid" 2>/dev/null; then
+    kill "$dash_pid" 2>/dev/null || true
+    wait "$dash_pid" 2>/dev/null || true
+    fail 'script launched with sh/dash should not hang'
+  fi
+  wait "$dash_pid" 2>/dev/null || true
+  dash_output="$(cat "$dash_out")"
+  if printf '%s' "$dash_output" | grep -Eq 'Bad substitution|Illegal option'; then
+    fail 'script should re-exec bash when launched with sh/dash'
+  fi
+  if ! printf '%s' "$dash_output" | grep -Eq '请用 root|SMB 挂载管理'; then
+    fail 'script launched with sh/dash should reach bash entrypoint'
+  fi
+fi
 
 grep -q 'umask 077' "$script" \
   || fail 'credentials should be created under restrictive umask'
@@ -42,8 +67,6 @@ if grep -q 'sudo -E' "$script"; then
   fail 'script must not preserve full caller environment via sudo -E'
 fi
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
 export SMB_FSTAB_FILE="$tmp/fstab"
 export SMB_CRED_PREFIX="$tmp/.smbcredentials"
 : >"$SMB_FSTAB_FILE"

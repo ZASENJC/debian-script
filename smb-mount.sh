@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  fi
+  echo "请安装 bash 后运行：sudo bash $0" >&2
+  exit 1
+fi
 # SMB mount manager for Debian/Ubuntu.
 # Usage: sudo bash smb-mount.sh
 
